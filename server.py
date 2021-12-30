@@ -1,7 +1,7 @@
 from vk_api.bot_longpoll import VkBotEventType
 from vk_api.utils import get_random_id
 
-from music_parser import Mosconsv
+from parser import Mosconsv
 
 
 class Server:
