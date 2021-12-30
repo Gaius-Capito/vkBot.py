@@ -1,20 +1,15 @@
 from vk_api.bot_longpoll import VkBotEventType
 from vk_api.utils import get_random_id
 
+from music_parser import Mosconsv
+
 
 class Server:
-
-
 
     def __init__(self, longpoll, vk):
         self.__longpoll = longpoll
         self.vk = vk
-        self.char_table = dict(zip(map(ord, "qwertyuiop[]asdfghjkl;'zxcvbnm,./`"
-                                            'QWERTYUIOP{}ASDFGHJKL:"ZXCVBNM<>?~'),
-                                            "йцукенгшщзхъфывапролджэячсмитьбю.ё"
-                                            'ЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,Ё'))
         print('Бот запущен!')
-
 
     def start(self, commands):
         self.commands = commands
@@ -23,7 +18,7 @@ class Server:
     def __command_starter(self):
         for event in self.__longpoll.listen():
             if event.type == VkBotEventType.MESSAGE_NEW:
-                msg = event.object['text'].lower().translate(self.char_table)
+                msg = event.object['text'].lower()
                 self.commands[msg]['func'](event.object['peer_id'])
 
     def command_help(self, user_id):
@@ -43,10 +38,11 @@ class Server:
             random_id=get_random_id()
         )
 
-    def command_weather(self, user_id):
+    def command_mosconsv(self, user_id):
         self.vk.messages.send(
-            message=f'Солнечно, +30 https://google.com',
+            message=Mosconsv().show_results(),
             peer_id=user_id,
             random_id=get_random_id()
         )
+
 

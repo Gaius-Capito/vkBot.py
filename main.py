@@ -20,11 +20,11 @@ commands = {
                 'func': server.command_upcoming_concerts,
                 'description': 'Показывает информацию о ближайших концертах в вашем городе'
             },
-            'не важно': {
-                'func': server.command_weather,
-                'description': 'показывает !'
+            'консерватория': {
+                'func': server.command_mosconsv,
+                'description': 'Показывает концерты в Московской консерватории на текущий день'
             },
-        }
+            }
 
 while True:
     try:
