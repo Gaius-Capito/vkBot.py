@@ -20,10 +20,6 @@ commands = {
                 'func': server.command_upcoming_concerts,
                 'description': 'Показывает информацию о ближайших концертах в вашем городе'
             },
-            # '': {
-            #     'func': server.command_find,
-            #     'description': 'Показывает концерты в Московской консерватории на текущий день'
-            # },
             }
 
 while True:
