@@ -1,10 +1,11 @@
 import datetime
+import time
 import aiohttp
 import asyncio
 import requests
 import sqlite3
+import threading
 from bs4 import BeautifulSoup
-
 
 class Mosconsv:
 
@@ -13,7 +14,7 @@ class Mosconsv:
         self.url = f'https://www.mosconsv.ru/afisha/{self.today}'
         self.__host = self.url.replace('//', '/').split('/')[1].replace('www.', '')
 
-    def __get_html_links_for_month(self):  # Функция получает url за 1 месяц, которые будут запрошены
+    def __get_links(self):  # Функция получает url за 1 месяц, которые будут запрошены
         today = datetime.date.today()  # в следующих методах
         daily_links = []
         for _ in range(30):
@@ -22,19 +23,25 @@ class Mosconsv:
             today += datetime.timedelta(days=1)
         return daily_links
 
-    async def __get_html_for_month(self):  # http запросы за каждые 30 дней для получения url всех концертов
+    async def __get_html(self):  # http запросы за каждые 30 дней для получения url всех концертов
         async with aiohttp.ClientSession() as session:
             html = []
-            for i in self.__get_html_links_for_month():
+            for i in self.__get_links():
                 response = await session.get(i)
                 html.append(await response.text())
         return html
 
     def run_async(self):
-        a = asyncio.run(self.__get_html_for_month())
-        self.var = a
+        thread1 = threading.Thread(target=self.start_async)
+        thread1.start()
+        print('!!!&!')
 
-    def get_concerts_links_for_one_month(self):
+    def start_async(self):
+        a = asyncio.run(self.__get_html())
+        self.var = a
+        self.run_async_1()
+
+    def get_concerts_links(self):
         links_to_concerts_per_month = []
         for i in self.var:
             soup = BeautifulSoup(i, 'html.parser')
@@ -45,24 +52,24 @@ class Mosconsv:
             links_to_concerts_per_month.append(concerts_links)
         return links_to_concerts_per_month
 
-    async def get_concert_html_for_one_month(self):
+    async def get_concert_html(self):
         async with aiohttp.ClientSession() as session:
             html = []
-            for i in self.get_concerts_links_for_one_month():
+            for i in self.get_concerts_links():
                 for j in i:
                     response = await session.get(f'http://{j}')
                     html.append(await response.text())
         return html
 
     def run_async_1(self):
-        a = asyncio.run(self.get_concert_html_for_one_month())
+        a = asyncio.run(self.get_concert_html())
         self.var1 = a
+        self.write_result_db()
 
-    def create_db(self):
+    def __create_db(self):
         with sqlite3.connect('concerts.db') as connection:
             table = """CREATE TABLE IF NOT EXISTS `concerts`(
             date VARCHAR(75) NOT NULL,
-            time VARCHAR(20) NOT NULL,
             place VARCHAR(100) NOT NULL,
             program TEXT NOT NULL,
             link TEXT NOT NULL
@@ -73,12 +80,24 @@ class Mosconsv:
             connection.commit()
             print("Таблица SQLite создана")
 
-    def get_final_result(self):
-        self.create_db()
+    def write_result_db(self):
+        self.__prepearing_db()
+        for date, place, program, link in self.get_final_res():
+            with sqlite3.connect('concerts.db') as connection:
+                cursor = connection.cursor()
+                cursor.execute("""INSERT INTO `concerts` (date, place, program, link) 
+                VALUES (?, ?, ?, ?)""", (date, place, program, link))
+                connection.commit()
+
+    def __prepearing_db(self):
+        self.__create_db()
         with sqlite3.connect('concerts.db') as connection:
             cursor = connection.cursor()
-            cursor.execute("DELETE FROM concerts")
+            cursor.execute("DELETE FROM `concerts`")
             connection.commit()
+            print('База данных очищена')
+
+    def get_final_res(self):
         for page in self.var1:
             soup = BeautifulSoup(page, 'html.parser')
             date = soup.find('div', class_='col-sm-3 afisha-date').get_text()
@@ -86,28 +105,8 @@ class Mosconsv:
             place = soup.find('div', class_='col-sm-6 afisha-hall').get_text()
             program = soup.find('div', itemtype="https://schema.org/CreativeWork").get_text()
             link = soup.find(property='og:url').get('content')
-            with sqlite3.connect('concerts.db') as connection:
-                cursor = connection.cursor()
-                cursor.execute("""INSERT INTO `concerts` (date, time, place, program, link) 
-                VALUES (?, ?, ?, ?, ?)""", (date, time_, place, program, link))
-                connection.commit()
-
-    def get_result_db(self):
-        with sqlite3.connect('concerts.db') as connection:
-            cursor = connection.cursor()
-            cursor.execute("SELECT `rowid`, `date`, `time`, `place`, `link` FROM `concerts` "
-                           "WHERE `program` LIKE '%Моцарт%';")
-            result = set(cursor.fetchall())
-            result = list(result)
-            result.sort()
-            return result
-
-    def write_in_file(self):
-        with open('concerts_to_sent.txt', 'w') as file_object:
-            file_object.write('Ссылки на концерты по Вашему запросу')
-            for i in self.get_result_db():
-                new = i[1].replace('\n', ' ').strip().lower()
-                file_object.write(f"\n\n{new}, в {i[2].strip()}\nМесто: {i[3].strip()}\nссылка на концерт: {i[4].strip()}")
+            date = date.replace('\n', ' ').strip().lower() + ', начало в ' + time_
+            yield date, place, program, link
 
 
 class Meloman:
@@ -130,13 +129,6 @@ class Meloman:
             links.append(f"https://{self.__host}{i['data-link']}")
         return links
 
-    # def get_concerts_data(self):
-    #     html = []
-    #     for i in self.get_all_links():
-    #         html1 = requests.get(i).text
-    #         html.append(html1)
-    #     print(html)
-
     async def get_concerts_data(self):
         async with aiohttp.ClientSession() as session:
             html = []
@@ -146,67 +138,61 @@ class Meloman:
         return html
 
     def run_async_2(self):
+        thread2 = threading.Thread(target=self.start_async)
+        thread2.start()
+
+    def start_async(self):
         a = asyncio.run(self.get_concerts_data())
         self.var3 = a
+        self.write_result_db()
 
-    def create_db(self):
-        with sqlite3.connect('concerts.db') as connection:
-            table = """CREATE TABLE IF NOT EXISTS `concerts1`(
-            time VARCHAR(20) NOT NULL,
-            place VARCHAR(100) NOT NULL,
-            program TEXT NOT NULL,
-            link TEXT NOT NULL
-            )"""
-            cursor = connection.cursor()
-            print("База данных подключена к SQLite")
-            cursor.execute(table)
-            connection.commit()
-            print("Таблица SQLite создана")
-
-    def get_month_data(self):
-        self.create_db()
-        with sqlite3.connect('concerts.db') as connection:
-            cursor = connection.cursor()
-            cursor.execute("DELETE FROM concerts1")
-            connection.commit()
+    def get_final_res(self):
         for i in self.var3:
             soup = BeautifulSoup(i, 'html.parser')
-            time_ = soup.find('p', class_='text size18').get_text().strip()
+            date = soup.find('p', class_='text size18').get_text().strip()
             place = soup.find('p', class_='text size18').find_next_sibling().get_text().strip()
             program = soup.find('div', class_='small-row align-left').find_next_sibling().get_text().strip()\
                 .replace('\n', '').replace('  ', '')
             link = soup.find(property="og:url").get('content')
+            yield date, place, program, link
+
+    def write_result_db(self):
+        time.sleep(90)
+        for date, place, program, link in self.get_final_res():
             with sqlite3.connect('concerts.db') as connection:
                 cursor = connection.cursor()
-                cursor.execute("""INSERT INTO `concerts1` (time, place, program, link) 
-                VALUES (?, ?, ?, ?)""", (time_, place, program, link))
-                connection.commit()
+                cursor.execute("""INSERT INTO `concerts` (date, place, program, link) 
+                VALUES (?, ?, ?, ?);""", (date, place, program, link))
+                print('идет запись')
+        connection.commit()
 
-    def get_result_db(self):
+    def get_result_db(self, msg):
+        print(msg)
+        data = f'%{msg}%'
         with sqlite3.connect('concerts.db') as connection:
             cursor = connection.cursor()
-            cursor.execute("SELECT `rowid`, `time`, `place`, `link` FROM `concerts1` "
-                           "WHERE `program` LIKE '%Скрябин%' ORDER BY `rowid`;")
+            cursor.execute("SELECT `rowid`, `date`, `place`, `link` FROM `concerts` "
+                           "WHERE `program` LIKE (?) ORDER BY `rowid`;", (data,))
             result = cursor.fetchall()
+            print('get_result')
             return result
 
-    def write_in_file(self):
-        with open('concerts_to_sent1.txt', 'w') as file_object:
+    def write_in_file(self, msg):
+        print('write in file')
+        with open('concerts_to_sent.txt', 'w') as file_object:
             file_object.write('Ссылки на концерты по Вашему запросу')
-            for i in self.get_result_db():
-                file_object.write(f"\n\n{i[1].strip()}\nМесто: {i[2].strip()}\nссылка на концерт: {i[3].strip()}")
+            for i in self.get_result_db(msg):
+                file_object.write(f"\n\n{i[1].strip()}\nМесто: {i[2].replace(' ', ' ').strip()}\nссылка на концерт: {i[3].strip()}")
+        print('finish writing')
 
 
-m = Meloman()
-# m.run_async_2()
-# m.get_month_data()
-m.get_result_db()
-m.write_in_file()
+def main():
+    while True:
+        m1 = Mosconsv()
+        m1.run_async()
+        m = Meloman()
+        m.run_async_2()
+        time.sleep(86400)
 
-
-# m = Mosconsv()
-# m.run_async()
-# m.run_async_1()
-# m.get_final_result()
-# print(m.get_result_db())
-# m.write_in_file()
+if __name__ == '__main__':
+    main()
